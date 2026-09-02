@@ -4,23 +4,19 @@ import {
   ScheduledPost,
   StoredKey,
   RoutingMatrix,
-  PromptTemplate,
   IngestedMessage,
+  PromptTemplate,
   CouncilAgent,
   CouncilMessage,
   CouncilConfig,
   CouncilEmergencySession,
+  CouncilDeliberationSession,
   QueueJob,
-  CostLog,
+  CostReport,
 } from '../types';
 
 export const api = {
   // Telegram Bot
-  getBotStatus: async (): Promise<TelegramBotConfig> => {
-    const res = await fetch('/api/telegram/status');
-    return res.json();
-  },
-
   getBotConfig: async (): Promise<TelegramBotConfig> => {
     const res = await fetch('/api/telegram/status');
     return res.json();
@@ -35,17 +31,11 @@ export const api = {
     return res.json();
   },
 
-  sendPostDirectly: async (payload: {
-    channelId?: string;
-    postTitle?: string;
-    text: string;
-    mediaUrl?: string;
-    mediaType?: string;
-  }) => {
+  sendPostDirectly: async (data: { channelId?: string; postTitle?: string; text: string; mediaUrl?: string; mediaType?: string }) => {
     const res = await fetch('/api/telegram/send-post', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(data),
     });
     return res.json();
   },
@@ -56,7 +46,7 @@ export const api = {
     return res.json();
   },
 
-  addChannel: async (channel: Partial<Channel>): Promise<{ success: boolean; channel: Channel }> => {
+  addChannel: async (channel: Partial<Channel>) => {
     const res = await fetch('/api/channels', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -70,13 +60,13 @@ export const api = {
     return res.json();
   },
 
-  // Posts & Scheduler
+  // Posts
   getPosts: async (): Promise<ScheduledPost[]> => {
     const res = await fetch('/api/posts');
     return res.json();
   },
 
-  createPost: async (post: Partial<ScheduledPost>): Promise<{ success: boolean; post: ScheduledPost }> => {
+  createPost: async (post: Partial<ScheduledPost>) => {
     const res = await fetch('/api/posts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -85,11 +75,11 @@ export const api = {
     return res.json();
   },
 
-  updatePost: async (id: string, updates: Partial<ScheduledPost>): Promise<{ success: boolean; post: ScheduledPost }> => {
+  updatePost: async (id: string, post: Partial<ScheduledPost>) => {
     const res = await fetch(`/api/posts/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updates),
+      body: JSON.stringify(post),
     });
     return res.json();
   },
@@ -100,15 +90,10 @@ export const api = {
   },
 
   // Keys & Routing
-  getKeys: async (): Promise<{ keys: StoredKey[]; routingMatrix: RoutingMatrix }> => {
-    const res = await fetch('/api/keys');
-    return res.json();
-  },
-
-  getRoutingMatrix: async (): Promise<RoutingMatrix> => {
+  getKeys: async (): Promise<StoredKey[]> => {
     const res = await fetch('/api/keys');
     const data = await res.json();
-    return data.routingMatrix;
+    return data.keys || [];
   },
 
   addKey: async (keyData: { provider: string; name: string; category: string; plainKeyValue: string }) => {
@@ -134,7 +119,13 @@ export const api = {
     return res.json();
   },
 
-  updateRouting: async (task: string, config: any) => {
+  getRoutingMatrix: async (): Promise<RoutingMatrix> => {
+    const res = await fetch('/api/keys');
+    const data = await res.json();
+    return data.routingMatrix;
+  },
+
+  updateRoutingRule: async (task: string, config: any) => {
     const res = await fetch('/api/keys/routing', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -143,9 +134,36 @@ export const api = {
     return res.json();
   },
 
-  // Content Ingestion & AI
+  // Ingestion & AI Processing
   getIngestedMessages: async (): Promise<IngestedMessage[]> => {
     const res = await fetch('/api/ingested');
+    return res.json();
+  },
+
+  createIngestedMessage: async (data: { originalText: string; sourceChannelName?: string; topic?: string }) => {
+    const res = await fetch('/api/ingested/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    return res.json();
+  },
+
+  analyzeImportance: async (messageId?: string) => {
+    const res = await fetch('/api/ingested/analyze-importance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messageId }),
+    });
+    return res.json();
+  },
+
+  escalateToCouncil: async (messageId: string, roundsCount: number, customInstruction?: string) => {
+    const res = await fetch('/api/ingested/escalate-to-council', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messageId, roundsCount, customInstruction }),
+    });
     return res.json();
   },
 
@@ -154,50 +172,25 @@ export const api = {
     return res.json();
   },
 
-  addTemplate: async (template: { name: string; category: string; systemPrompt: string }) => {
-    const res = await fetch('/api/templates', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(template),
-    });
-    return res.json();
-  },
-
-  processContentAI: async (payload: {
-    originalText: string;
-    templateId?: string;
-    customInstruction?: string;
-    targetTone?: string;
-  }) => {
+  processContent: async (data: { originalText: string; templateId?: string; targetTone?: string; customInstruction?: string }) => {
     const res = await fetch('/api/ai/process-content', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(data),
     });
     return res.json();
   },
 
-  // Council
+  // Council of AI Agents
   getCouncil: async (): Promise<{
     agents: CouncilAgent[];
     messages: CouncilMessage[];
     config?: CouncilConfig;
-    activeEmergencySession?: CouncilEmergencySession;
+    activeEmergencySession?: CouncilEmergencySession | null;
+    activeDeliberationSession?: CouncilDeliberationSession | null;
   }> => {
     const res = await fetch('/api/council');
     return res.json();
-  },
-
-  getCouncilAgents: async (): Promise<CouncilAgent[]> => {
-    const res = await fetch('/api/council');
-    const data = await res.json();
-    return data.agents;
-  },
-
-  getCouncilMessages: async (): Promise<CouncilMessage[]> => {
-    const res = await fetch('/api/council');
-    const data = await res.json();
-    return data.messages;
   },
 
   sendCouncilMessage: async (text: string) => {
@@ -205,6 +198,32 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
+    });
+    return res.json();
+  },
+
+  deliberateCouncil: async (data: {
+    newsId?: string;
+    newsTitle?: string;
+    newsText: string;
+    sourceChannel?: string;
+    importanceScore?: number;
+    roundsCount: number;
+    customInstruction?: string;
+  }) => {
+    const res = await fetch('/api/council/deliberate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    return res.json();
+  },
+
+  triggerEmergencySession: async (topic?: string, isManual = true) => {
+    const res = await fetch('/api/council/emergency-trigger', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ topic, isManual }),
     });
     return res.json();
   },
@@ -218,98 +237,52 @@ export const api = {
     return res.json();
   },
 
-  triggerEmergencySession: async (payload: { topic?: string; isManual?: boolean }) => {
-    const res = await fetch('/api/council/emergency-trigger', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    return res.json();
-  },
-
-  publishCouncilDraft: async (payload: { postId: string; channelId?: string }) => {
-    const res = await fetch('/api/council/action/publish', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    return res.json();
-  },
-
   clearCouncilHistory: async () => {
     const res = await fetch('/api/council/clear', { method: 'POST' });
     return res.json();
   },
 
-  // Multimedia & Queue
-  getQueue: async (): Promise<QueueJob[]> => {
-    const res = await fetch('/api/queue');
+  publishCouncilDraft: async (postId: string, channelId?: string) => {
+    const res = await fetch('/api/council/action/publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ postId, channelId }),
+    });
     return res.json();
   },
 
+  // Media & Queue
   getQueueJobs: async (): Promise<QueueJob[]> => {
     const res = await fetch('/api/queue');
     return res.json();
   },
 
-  generateMedia: async (payload: {
-    type: 'image' | 'video' | 'audio';
-    prompt: string;
-    provider?: string;
-    style?: string;
-    voice?: string;
-  }) => {
+  generateMedia: async (data: { type: 'image' | 'video' | 'audio'; prompt: string; provider?: string; style?: string; voice?: string }) => {
     const res = await fetch('/api/media/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(data),
     });
     return res.json();
   },
 
-  // Cost & Logs
-  getCostLogs: async (): Promise<{ logs: CostLog[]; summary: { totalCostUsd: number; totalCostToman: number; totalCalls: number } }> => {
-    const res = await fetch('/api/logs');
-    return res.json();
-  },
-
-  getCostReport: async () => {
+  // Cost Reports
+  getCostReport: async (): Promise<CostReport> => {
     const res = await fetch('/api/logs');
     const data = await res.json();
-    const logs: CostLog[] = data.logs || [];
-    const byProvider: Record<string, { usd: number; toman: number; calls: number }> = {};
-
-    logs.forEach((log) => {
-      const p = log.provider || 'Other';
-      if (!byProvider[p]) {
-        byProvider[p] = { usd: 0, toman: 0, calls: 0 };
-      }
-      byProvider[p].usd += log.costUsd;
-      byProvider[p].toman += log.costToman;
-      byProvider[p].calls += 1;
-    });
-
     return {
-      totalTodayUsd: data.summary?.totalCostUsd || 0.048,
-      totalTodayToman: data.summary?.totalCostToman || 4800,
-      totalMonthUsd: (data.summary?.totalCostUsd || 0.048) * 26,
-      totalMonthToman: (data.summary?.totalCostToman || 4800) * 26,
-      byProvider,
+      totalTodayUsd: data.summary?.totalCostUsd || 0,
+      totalTodayToman: data.summary?.totalCostToman || 0,
+      logs: data.logs || [],
     };
   },
 
-  estimateCost: async (payload: { textLength: number; model?: string; mediaTasks?: { image?: boolean; video?: boolean; audio?: boolean } }) => {
+  estimateCost: async (data: { textLength: number; model?: string; mediaTasks?: string[] }) => {
     const res = await fetch('/api/ai/estimate-cost', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(data),
     });
-    return res.json();
-  },
-
-  // Architecture
-  getArchitectureSchema: async () => {
-    const res = await fetch('/api/system/schema');
     return res.json();
   },
 };

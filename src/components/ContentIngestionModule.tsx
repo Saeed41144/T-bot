@@ -1,508 +1,981 @@
 import React, { useState } from 'react';
+import { IngestedMessage, PromptTemplate, Channel } from '../types';
+import { api } from '../services/api';
 import {
-  Compass,
-  Filter,
+  FileText,
   Sparkles,
   ShieldCheck,
-  CheckCircle2,
-  AlertTriangle,
-  FileText,
-  RefreshCw,
-  Sliders,
   Send,
+  Loader2,
+  Copy,
+  Check,
+  Zap,
+  Tag,
+  SlidersHorizontal,
+  AlertTriangle,
+  Flame,
+  Radio,
+  Users,
+  CheckCircle2,
+  XCircle,
+  Clock,
   ArrowRight,
-  Eye,
   Plus,
-  BookOpen,
+  RefreshCw,
+  ExternalLink,
+  MessageSquare,
+  Search,
+  Filter,
 } from 'lucide-react';
-import { IngestedMessage, PromptTemplate, Channel, ScheduledPost } from '../types';
-import { api } from '../services/api';
 
-interface Props {
+interface ContentIngestionModuleProps {
   ingestedMessages: IngestedMessage[];
   templates: PromptTemplate[];
   destinationChannels: Channel[];
   onRefresh: () => void;
+  onNavigateToCouncil?: () => void;
 }
 
-export const ContentIngestionModule: React.FC<Props> = ({
+export const ContentIngestionModule: React.FC<ContentIngestionModuleProps> = ({
   ingestedMessages,
   templates,
   destinationChannels,
   onRefresh,
+  onNavigateToCouncil,
 }) => {
-  // Filtering states
-  const [keywordFilter, setKeywordFilter] = useState('');
-  const [topicFilter, setTopicFilter] = useState('all');
-  const [timeFilter, setTimeFilter] = useState('24h');
+  // Tabs: 'monitor' (رصد و غربالگری هوشمند اخبار) or 'rewrite' (ابزار بازنویسی Gemini)
+  const [activeSubTab, setActiveSubTab] = useState<'monitor' | 'rewrite'>('monitor');
 
-  // Active message being reviewed / processed
-  const [selectedMessage, setSelectedMessage] = useState<IngestedMessage | null>(
-    ingestedMessages[0] || null
-  );
+  // Filter & Search
+  const [urgencyFilter, setUrgencyFilter] = useState<'all' | 'critical' | 'high' | 'council'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
 
-  // AI Rewriting parameters
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string>(
-    templates[0]?.id || 'tmpl-1'
-  );
-  const [customInstruction, setCustomInstruction] = useState('');
+  // AI Importance Analysis State
+  const [isAnalyzingAll, setIsAnalyzingAll] = useState(false);
+  const [analyzingItemId, setAnalyzingItemId] = useState<string | null>(null);
+  const [notificationMsg, setNotificationMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Escalate to Council Modal State
+  const [escalatingItem, setEscalatingItem] = useState<IngestedMessage | null>(null);
+  const [selectedRounds, setSelectedRounds] = useState<number>(3);
+  const [managerInstruction, setManagerInstruction] = useState('');
+  const [isEscalating, setIsEscalating] = useState(false);
+
+  // Add Manual Monitored News Modal State
+  const [showAddNewsModal, setShowAddNewsModal] = useState(false);
+  const [newNewsText, setNewNewsText] = useState('');
+  const [newNewsSource, setNewNewsSource] = useState('کانال خبری تلگرام (رویترز / فارس / بین‌الملل)');
+  const [newNewsTopic, setNewNewsTopic] = useState('');
+  const [isSubmittingNews, setIsSubmittingNews] = useState(false);
+
+  // Rewrite Tab State
+  const [inputText, setInputText] = useState('');
+  const [selectedTemplateId, setSelectedTemplateId] = useState(templates[0]?.id || '');
   const [targetTone, setTargetTone] = useState('حرفه‌ای و ژورنالیستی');
-  const [isProcessingAI, setIsProcessingAI] = useState(false);
-  const [processedOutput, setProcessedOutput] = useState<string | null>(
-    selectedMessage?.rewrittenText || null
-  );
-  const [similarityScore, setSimilarityScore] = useState<number>(
-    selectedMessage?.similarityPercentage || 14
-  );
-  const [copyrightNotice, setCopyrightNotice] = useState<string | null>(null);
+  const [customInstruction, setCustomInstruction] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [rewrittenResult, setRewrittenResult] = useState<string | null>(null);
+  const [similarityScore, setSimilarityScore] = useState<number | null>(null);
+  const [costInfo, setCostInfo] = useState<any | null>(null);
+  const [isCopied, setIsCopied] = useState(false);
+  const [isSavingPost, setIsSavingPost] = useState(false);
 
-  // Template editor modal
-  const [isAddingTemplate, setIsAddingTemplate] = useState(false);
-  const [newTemplateName, setNewTemplateName] = useState('');
-  const [newTemplatePrompt, setNewTemplatePrompt] = useState('');
+  const showNotification = (type: 'success' | 'error', text: string) => {
+    setNotificationMsg({ type, text });
+    setTimeout(() => setNotificationMsg(null), 5000);
+  };
 
-  // Human in the Loop approval
-  const [isApproving, setIsApproving] = useState(false);
-  const [approvalNotice, setApprovalNotice] = useState<string | null>(null);
+  // Run AI Importance Analysis on all or single
+  const handleAnalyzeAll = async () => {
+    setIsAnalyzingAll(true);
+    try {
+      const res = await api.analyzeImportance();
+      if (res.success) {
+        showNotification('success', res.message || 'پروتکل غربالگری هوش مصنوعی با موفقیت اجرا شد.');
+        onRefresh();
+      }
+    } catch (err) {
+      console.error('Error running AI importance analysis:', err);
+      showNotification('error', 'خطا در ارزیابی خودکار اخبار.');
+    } finally {
+      setIsAnalyzingAll(false);
+    }
+  };
+
+  const handleAnalyzeItem = async (msgId: string) => {
+    setAnalyzingItemId(msgId);
+    try {
+      const res = await api.analyzeImportance(msgId);
+      if (res.success) {
+        showNotification('success', 'ارزیابی فوریت و اعتبار خبر با موفقیت انجام شد.');
+        onRefresh();
+      }
+    } catch (err) {
+      console.error('Error analyzing news item:', err);
+      showNotification('error', 'خطا در تحلیل خبر.');
+    } finally {
+      setAnalyzingItemId(null);
+    }
+  };
+
+  // Add Manual News
+  const handleCreateNews = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newNewsText.trim() || isSubmittingNews) return;
+
+    setIsSubmittingNews(true);
+    try {
+      const res = await api.createIngestedMessage({
+        originalText: newNewsText.trim(),
+        sourceChannelName: newNewsSource,
+        topic: newNewsTopic.trim() || undefined,
+      });
+
+      if (res.success) {
+        showNotification('success', 'خبر جدید با موفقیت به رصد محتوا افزوده شد.');
+        setNewNewsText('');
+        setNewNewsTopic('');
+        setShowAddNewsModal(false);
+        onRefresh();
+      }
+    } catch (err) {
+      console.error('Error creating news:', err);
+      showNotification('error', 'خطا در افزودن خبر.');
+    } finally {
+      setIsSubmittingNews(false);
+    }
+  };
+
+  // Escalate to Council with User-Defined Rounds
+  const handleEscalateToCouncil = async () => {
+    if (!escalatingItem || isEscalating) return;
+
+    setIsEscalating(true);
+    try {
+      const res = await api.escalateToCouncil(
+        escalatingItem.id,
+        selectedRounds,
+        managerInstruction.trim() || undefined
+      );
+
+      if (res.success) {
+        showNotification(
+          'success',
+          `جلسه داوری شورا در ${selectedRounds} دور آغاز گردید. شورا تصمیم گرفت: ${
+            res.session?.verdict === 'approved' ? 'تایید و تصویب جهت انتشار در کانال تلگرام' : 'رد خبر و عدم انتشار'
+          }`
+        );
+        setEscalatingItem(null);
+        setManagerInstruction('');
+        onRefresh();
+      }
+    } catch (err) {
+      console.error('Error escalating to council:', err);
+      showNotification('error', 'خطا در ارجاع به شورای ایجنت‌ها.');
+    } finally {
+      setIsEscalating(false);
+    }
+  };
+
+  // Rewrite Handlers
+  const handleRewrite = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inputText.trim() || isProcessing) return;
+
+    setIsProcessing(true);
+    try {
+      const res = await api.processContent({
+        originalText: inputText.trim(),
+        templateId: selectedTemplateId || undefined,
+        targetTone,
+        customInstruction,
+      });
+
+      if (res.success) {
+        setRewrittenResult(res.rewrittenText);
+        setSimilarityScore(res.similarityScore);
+        setCostInfo(res.cost);
+        onRefresh();
+      }
+    } catch (err) {
+      console.error('Error processing content:', err);
+      showNotification('error', 'خطا در بازنویسی محتوا.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleSaveToPost = async () => {
+    if (!rewrittenResult) return;
+    setIsSavingPost(true);
+    try {
+      await api.createPost({
+        title: rewrittenResult.split('\n')[0].slice(0, 45) || 'پست بازنویسی‌شده',
+        content: rewrittenResult,
+        mediaType: 'text',
+        targetChannelIds: destinationChannels.map((c) => c.id),
+        status: 'draft',
+      });
+      showNotification('success', 'پست با موفقیت در لیست پیش‌نویس‌ها ذخیره شد.');
+      onRefresh();
+    } catch (err) {
+      console.error('Error saving post:', err);
+      showNotification('error', 'خطا در ذخیره پست.');
+    } finally {
+      setIsSavingPost(false);
+    }
+  };
+
+  const copyToClipboard = () => {
+    if (rewrittenResult) {
+      navigator.clipboard.writeText(rewrittenResult);
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
+    }
+  };
 
   // Filter messages
   const filteredMessages = ingestedMessages.filter((msg) => {
-    if (topicFilter !== 'all' && msg.topic !== topicFilter) return false;
-    if (keywordFilter) {
-      const matchKey = msg.keywords.some((k) => k.toLowerCase().includes(keywordFilter.toLowerCase()));
-      const matchText = msg.originalText.toLowerCase().includes(keywordFilter.toLowerCase());
-      if (!matchKey && !matchText) return false;
+    if (urgencyFilter === 'critical' && msg.urgencyLevel !== 'critical') return false;
+    if (urgencyFilter === 'high' && msg.urgencyLevel !== 'high' && msg.urgencyLevel !== 'critical') return false;
+    if (urgencyFilter === 'council' && !msg.councilVerdict && msg.processingStatus !== 'in_council') return false;
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      return (
+        msg.originalText.toLowerCase().includes(q) ||
+        msg.sourceChannelName.toLowerCase().includes(q) ||
+        msg.topic.toLowerCase().includes(q) ||
+        (msg.importanceReason && msg.importanceReason.toLowerCase().includes(q))
+      );
     }
     return true;
   });
 
-  const handleSelectMessage = (msg: IngestedMessage) => {
-    setSelectedMessage(msg);
-    setProcessedOutput(msg.rewrittenText || null);
-    setSimilarityScore(msg.similarityPercentage || 14);
-    setApprovalNotice(null);
-  };
-
-  const handleRunAiProcess = async () => {
-    if (!selectedMessage) return;
-    setIsProcessingAI(true);
-    setCopyrightNotice(null);
-    setApprovalNotice(null);
-
-    try {
-      const res = await api.processContentAI({
-        originalText: selectedMessage.originalText,
-        templateId: selectedTemplateId,
-        customInstruction,
-        targetTone,
-      });
-
-      if (res.success) {
-        setProcessedOutput(res.rewrittenText);
-        setSimilarityScore(res.similarityScore);
-        setCopyrightNotice(
-          `گزارش ممیزی حقوق نشر: شباهت متنی ${res.similarityScore}٪ ارزیابی شد. محتوا دارای اصالت بالا بوده و منطبق با قوانین تلگرام است.`
-        );
-      }
-    } catch {
-      setCopyrightNotice('خطا در پردازش با هوش مصنوعی. لطفاً دوباره امتحان کنید.');
-    } finally {
-      setIsProcessingAI(false);
-    }
-  };
-
-  const handleApproveAndSchedule = async () => {
-    if (!selectedMessage || !processedOutput) return;
-    setIsApproving(true);
-    try {
-      const destId = destinationChannels[0]?.id || '';
-      await api.createPost({
-        title: `بازنویسی: ${selectedMessage.originalText.slice(0, 35)}...`,
-        content: processedOutput,
-        destinationChannelIds: [destId],
-        scheduledAt: new Date(Date.now() + 3600000).toISOString(),
-        status: 'scheduled',
-        originalSourceId: selectedMessage.id,
-        plagiarismRiskScore: similarityScore,
-        tags: selectedMessage.keywords,
-      });
-
-      setApprovalNotice('✅ پست با موفقیت تایید شد و به صف زمان‌بندی انتشار اضافه گردید.');
-      onRefresh();
-    } catch {
-      setApprovalNotice('خطا در ثبت پست زمان‌بندی.');
-    } finally {
-      setIsApproving(false);
-    }
-  };
-
-  const handleCreateTemplate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTemplateName || !newTemplatePrompt) return;
-    await api.addTemplate({
-      name: newTemplateName,
-      category: 'custom',
-      systemPrompt: newTemplatePrompt,
-    });
-    setNewTemplateName('');
-    setNewTemplatePrompt('');
-    setIsAddingTemplate(false);
-    onRefresh();
-  };
-
   return (
-    <div className="space-y-6" dir="rtl">
-      {/* Top Banner */}
-      <div className="p-6 rounded-2xl bg-gradient-to-r from-slate-900 via-slate-900 to-indigo-950/30 border border-slate-800 shadow-xl">
+    <div className="space-y-6">
+      {/* Top Banner & Mode Toggle */}
+      <div className="bg-gradient-to-r from-slate-900 via-slate-900 to-emerald-950/40 border border-slate-800 rounded-2xl p-5 shadow-xl">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-indigo-600/20 text-indigo-400 flex items-center justify-center border border-indigo-500/30 shadow-inner">
-              <Compass className="w-6 h-6" />
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center shrink-0 shadow-lg shadow-emerald-500/25 ring-2 ring-emerald-400/20">
+              <Radio className="w-6 h-6 animate-pulse" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-xl font-bold text-white">رصد هوشمند کانال‌های مبدأ و بازنویسی اختصاصی</h2>
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                  Human-in-the-Loop فعال
+              <div className="flex items-center gap-3 flex-wrap">
+                <h2 className="text-lg font-bold text-white tracking-tight">
+                  پروتکل هوشمند رصد، غربالگری و پالایش اخبار با هوش مصنوعی
+                </h2>
+                <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium flex items-center gap-1">
+                  <Sparkles className="w-3 h-3 text-emerald-400" />
+                  مجهز به فیلتر هوش مصنوعی و ارجاع به شورا
                 </span>
               </div>
-              <p className="text-xs text-slate-400">
-                دریافت مجاز پست‌ها از کانال‌های مبدأ، فیلتر محتوایی، بازنویسی هوشمند با قالب‌های شخصی‌سازی‌شده و ممیزی کپی‌رایت
+              <p className="text-xs text-slate-300 mt-1.5 leading-relaxed">
+                این پروتکل اخبار دریافتی از کانال‌های تلگرامی و منابع خبری را رصد کرده، فوریت و ارزش خبری را به صورت خودکار با مدل Gemini تشخیص می‌دهد و خبرهای حساس را جهت تصمیم‌گیری نهایی پیرامون پخش یا عدم پخش به شورای ایجنت‌ها ارسال می‌کند.
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          {/* Tab buttons */}
+          <div className="flex items-center gap-2 shrink-0 bg-slate-950/80 p-1 rounded-xl border border-slate-800">
             <button
-              onClick={() => setIsAddingTemplate(true)}
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-medium transition border border-slate-700"
+              onClick={() => setActiveSubTab('monitor')}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all ${
+                activeSubTab === 'monitor'
+                  ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
             >
-              <Plus className="w-3.5 h-3.5" />
-              افزودن دستورالعمل (Prompt Template)
+              <Radio className="w-4 h-4" />
+              <span>پایش و رصد اخبار ({ingestedMessages.length})</span>
+            </button>
+            <button
+              onClick={() => setActiveSubTab('rewrite')}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all ${
+                activeSubTab === 'rewrite'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <FileText className="w-4 h-4" />
+              <span>کارگاه بازنویسی Gemini</span>
             </button>
           </div>
         </div>
       </div>
 
-      {/* Main Workspace: 3 Columns Layout (Feed -> AI Configuration -> Human Review) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Col 1: Ingested Feed & Filters (4 cols) */}
-        <div className="lg:col-span-4 p-5 rounded-2xl bg-slate-900/70 border border-slate-800 space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Filter className="w-4 h-4 text-indigo-400" />
-              <h3 className="font-bold text-white text-sm">پیام‌های دریافتی از مبادی</h3>
+      {/* Notification Toast */}
+      {notificationMsg && (
+        <div
+          className={`p-3.5 rounded-xl border flex items-center gap-3 text-xs animate-in fade-in ${
+            notificationMsg.type === 'success'
+              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+              : 'bg-red-500/10 border-red-500/30 text-red-300'
+          }`}
+        >
+          {notificationMsg.type === 'success' ? (
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          ) : (
+            <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+          )}
+          <span>{notificationMsg.text}</span>
+        </div>
+      )}
+
+      {/* SUB-TAB 1: AI NEWS MONITORING & DELIBERATION ESCALATION */}
+      {activeSubTab === 'monitor' && (
+        <div className="space-y-5">
+          {/* Controls Bar */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+            {/* Search & Urgency Filter */}
+            <div className="flex flex-wrap items-center gap-2.5 flex-1">
+              <div className="relative flex-1 min-w-[200px] max-w-sm">
+                <Search className="w-4 h-4 absolute right-3 top-2.5 text-slate-500" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="جستجو در متن، منبع یا موضوع اخبار..."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pr-9 pl-3 py-2 text-xs text-slate-200 outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+                <button
+                  onClick={() => setUrgencyFilter('all')}
+                  className={`px-3 py-1.5 rounded-lg transition-all ${
+                    urgencyFilter === 'all'
+                      ? 'bg-slate-800 text-white font-semibold'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  همه ({ingestedMessages.length})
+                </button>
+                <button
+                  onClick={() => setUrgencyFilter('critical')}
+                  className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1 ${
+                    urgencyFilter === 'critical'
+                      ? 'bg-red-950/80 text-red-300 font-semibold border border-red-800/50'
+                      : 'text-red-400/80 hover:text-red-300'
+                  }`}
+                >
+                  <Flame className="w-3.5 h-3.5 text-red-400" />
+                  <span>بحرانی / فوری</span>
+                </button>
+                <button
+                  onClick={() => setUrgencyFilter('high')}
+                  className={`px-3 py-1.5 rounded-lg transition-all ${
+                    urgencyFilter === 'high'
+                      ? 'bg-amber-950/80 text-amber-300 font-semibold border border-amber-800/50'
+                      : 'text-amber-400/80 hover:text-amber-300'
+                  }`}
+                >
+                  اهمیت بالا
+                </button>
+                <button
+                  onClick={() => setUrgencyFilter('council')}
+                  className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1 ${
+                    urgencyFilter === 'council'
+                      ? 'bg-purple-950/80 text-purple-300 font-semibold border border-purple-800/50'
+                      : 'text-purple-400/80 hover:text-purple-300'
+                  }`}
+                >
+                  <Users className="w-3.5 h-3.5 text-purple-400" />
+                  <span>داوری‌شده در شورا</span>
+                </button>
+              </div>
             </div>
-            <span className="text-xs text-slate-400 font-mono">{filteredMessages.length} پیام</span>
+
+            {/* Action Buttons */}
+            <div className="flex items-center gap-2.5 shrink-0">
+              {/* Manual News Ingestion */}
+              <button
+                onClick={() => setShowAddNewsModal(true)}
+                className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold px-3.5 py-2 rounded-xl border border-slate-700 active:scale-95 transition-all"
+              >
+                <Plus className="w-4 h-4 text-emerald-400" />
+                <span>ثبت دستی خبر رصدشده</span>
+              </button>
+
+              {/* Run AI Importance Protocol */}
+              <button
+                onClick={handleAnalyzeAll}
+                disabled={isAnalyzingAll}
+                className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-semibold px-4 py-2 rounded-xl shadow-lg shadow-emerald-600/30 active:scale-95 transition-all disabled:opacity-50"
+              >
+                {isAnalyzingAll ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Sparkles className="w-4 h-4" />
+                )}
+                <span>غربالگری هوشمند اخبار با هوش مصنوعی</span>
+              </button>
+            </div>
           </div>
 
-          {/* Filters Bar */}
-          <div className="space-y-2">
-            <input
-              type="text"
-              value={keywordFilter}
-              onChange={(e) => setKeywordFilter(e.target.value)}
-              placeholder="جستجو در کلمات کلیدی یا متن..."
-              className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-            />
-            <div className="flex gap-2">
-              <select
-                value={topicFilter}
-                onChange={(e) => setTopicFilter(e.target.value)}
-                className="flex-1 px-2 py-1 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-300 focus:outline-none"
-              >
-                <option value="all">همه موضوعات</option>
-                <option value="هوش مصنوعی">هوش مصنوعی</option>
-                <option value="اقتصاد و کریپتو">اقتصاد و کریپتو</option>
-                <option value="استارتاپ">استارتاپ</option>
-              </select>
-              <select
-                value={timeFilter}
-                onChange={(e) => setTimeFilter(e.target.value)}
-                className="px-2 py-1 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-300 focus:outline-none"
-              >
-                <option value="24h">۲۴ ساعت اخیر</option>
-                <option value="week">هفته جاری</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Message List */}
-          <div className="space-y-2.5 max-h-[580px] overflow-y-auto pr-1">
+          {/* News Items Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {filteredMessages.length === 0 ? (
-              <div className="p-8 text-center text-xs text-slate-500 rounded-xl border border-dashed border-slate-800 space-y-2">
-                <p>هنوز پیامی از کانال‌های مبدأ دریافت نشده است.</p>
-                <p className="text-[11px] text-slate-600 leading-relaxed">
-                  می‌توانید کانال‌های مبدأ را از بخش «ربات و کانال‌ها» ثبت کنید تا پیام‌ها در این قسمت لیست شوند.
+              <div className="col-span-full bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center text-slate-400">
+                <Radio className="w-12 h-12 mx-auto text-slate-600 mb-3" />
+                <h3 className="font-semibold text-slate-300 text-sm">خبری با فیلتر انتخابی یافت نشد</h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  می‌توانید فیلترها را ریست کنید یا با دکمه «ثبت دستی خبر رصدشده» متن جدیدی را وارد نمایید.
                 </p>
               </div>
             ) : (
               filteredMessages.map((msg) => {
-              const isSelected = selectedMessage?.id === msg.id;
-              return (
-                <div
-                  key={msg.id}
-                  onClick={() => handleSelectMessage(msg)}
-                  className={`p-3.5 rounded-xl border transition cursor-pointer space-y-2 ${
-                    isSelected
-                      ? 'bg-indigo-950/40 border-indigo-500/50 shadow-md'
-                      : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
-                  }`}
-                >
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="font-bold text-slate-300 font-mono dir-ltr">{msg.sourceChannelName}</span>
-                    <span className="text-slate-500">
-                      {new Date(msg.date).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
+                const isCritical = msg.urgencyLevel === 'critical' || (msg.importanceScore || 0) >= 90;
+                const isHigh = msg.urgencyLevel === 'high' || ((msg.importanceScore || 0) >= 75 && !isCritical);
+                const isCouncilApproved = msg.councilVerdict === 'approved' || msg.processingStatus === 'council_approved';
+                const isCouncilRejected = msg.councilVerdict === 'rejected' || msg.processingStatus === 'council_rejected';
+                const isInCouncil = msg.processingStatus === 'in_council';
 
-                  <p className="text-xs text-slate-300 line-clamp-3 leading-relaxed">
-                    {msg.originalText}
-                  </p>
+                return (
+                  <div
+                    key={msg.id}
+                    className={`bg-slate-900 border rounded-2xl p-5 shadow-xl transition-all flex flex-col justify-between ${
+                      isCritical
+                        ? 'border-red-500/40 bg-gradient-to-b from-red-950/20 via-slate-900 to-slate-900 ring-1 ring-red-500/20'
+                        : isHigh
+                          ? 'border-amber-500/30'
+                          : 'border-slate-800'
+                    }`}
+                  >
+                    <div>
+                      {/* Card Header: Source, Date, Badges */}
+                      <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-800/80">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-slate-200">
+                            {msg.sourceChannelName}
+                          </span>
+                          <span className="text-[10px] text-slate-500 font-mono">
+                            {new Date(msg.date).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
 
-                  <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1 text-[10px]">
-                    <span className="px-2 py-0.5 rounded bg-slate-800 text-indigo-300">
-                      #{msg.topic}
-                    </span>
-                    <span
-                      className={`px-2 py-0.5 rounded font-medium ${
-                        msg.processingStatus === 'rewritten'
-                          ? 'bg-emerald-500/10 text-emerald-400'
-                          : 'bg-slate-800 text-slate-400'
-                      }`}
-                    >
-                      {msg.processingStatus === 'rewritten' ? 'بازنویسی‌شده' : 'جدید'}
-                    </span>
+                        {/* Urgency Badge */}
+                        <div className="flex items-center gap-1.5">
+                          {isCritical && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-red-500/20 text-red-300 border border-red-500/40 flex items-center gap-1">
+                              <Flame className="w-3 h-3 text-red-400" />
+                              بحرانی / فوری
+                            </span>
+                          )}
+                          {isHigh && (
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                              اهمیت راهبردی
+                            </span>
+                          )}
+
+                          {/* Council Status Badge */}
+                          {isCouncilApproved && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                              تصویب شورا (پخش در کانال)
+                            </span>
+                          )}
+                          {isCouncilRejected && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-500/20 text-rose-300 border border-rose-500/40 flex items-center gap-1">
+                              <XCircle className="w-3 h-3 text-rose-400" />
+                              رد شورا (عدم انتشار)
+                            </span>
+                          )}
+                          {isInCouncil && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center gap-1 animate-pulse">
+                              <Users className="w-3 h-3 text-purple-400" />
+                              در حال داوری شورا...
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Topic Title */}
+                      <div className="mt-3">
+                        <h4 className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                          <Tag className="w-3.5 h-3.5 text-amber-400" />
+                          <span>{msg.topic}</span>
+                        </h4>
+                      </div>
+
+                      {/* Raw Text */}
+                      <p className="mt-2 text-xs text-slate-200 leading-relaxed line-clamp-4 bg-slate-950/60 p-3 rounded-xl border border-slate-800/80 font-sans">
+                        {msg.originalText}
+                      </p>
+
+                      {/* AI Importance Indicators */}
+                      <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2 bg-slate-950 p-2.5 rounded-xl border border-slate-800/80 text-[11px]">
+                        <div>
+                          <span className="text-slate-400 block text-[10px]">شاخص فوریت هوش مصنوعی:</span>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <div className="flex-1 bg-slate-800 h-2 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full ${
+                                  (msg.importanceScore || 70) >= 85
+                                    ? 'bg-red-500'
+                                    : (msg.importanceScore || 70) >= 70
+                                      ? 'bg-amber-500'
+                                      : 'bg-emerald-500'
+                                }`}
+                                style={{ width: `${msg.importanceScore || 75}%` }}
+                              />
+                            </div>
+                            <span className="font-bold text-white font-mono">
+                              %{msg.importanceScore || 75}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div>
+                          <span className="text-slate-400 block text-[10px]">تخمین وثاقت منبع:</span>
+                          <span className="font-bold text-cyan-400 font-mono">
+                            %{msg.factCredibilityScore || 90}
+                          </span>
+                        </div>
+
+                        <div className="col-span-2 sm:col-span-1">
+                          <span className="text-slate-400 block text-[10px]">تشابه با مراجع:</span>
+                          <span className="font-bold text-emerald-400 font-mono">
+                            %{msg.similarityPercentage || 5} (ممیزی امن)
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* AI Reason for Importance */}
+                      {msg.importanceReason && (
+                        <div className="mt-2.5 p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 text-[11px] text-slate-300 leading-relaxed flex items-start gap-2">
+                          <Sparkles className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                          <div>
+                            <span className="font-semibold text-emerald-400">تحلیل هوشمند ارزش خبری: </span>
+                            <span>{msg.importanceReason}</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Council Decision Summary (if decided) */}
+                      {msg.councilDecisionSummary && (
+                        <div className="mt-2.5 p-2.5 rounded-xl bg-purple-950/30 border border-purple-800/40 text-[11px] text-purple-200 leading-relaxed flex items-start gap-2">
+                          <Users className="w-3.5 h-3.5 text-purple-400 shrink-0 mt-0.5" />
+                          <div>
+                            <span className="font-semibold text-purple-300">
+                              مصوبه شورا ({msg.councilRounds || 3} دور مباحثه):{' '}
+                            </span>
+                            <span>{msg.councilDecisionSummary}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Card Actions Footer */}
+                    <div className="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        {/* Quick AI Analyze Single Item */}
+                        <button
+                          onClick={() => handleAnalyzeItem(msg.id)}
+                          disabled={analyzingItemId === msg.id}
+                          className="text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
+                          title="ارزیابی مجدد با هوش مصنوعی"
+                        >
+                          {analyzingItemId === msg.id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+                          ) : (
+                            <RefreshCw className="w-3.5 h-3.5 text-emerald-400" />
+                          )}
+                          <span>تحلیل مجدد</span>
+                        </button>
+
+                        {/* Copy raw text */}
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(msg.originalText);
+                            showNotification('success', 'متن خبر کپی شد.');
+                          }}
+                          className="text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-300 p-1.5 rounded-lg transition-colors"
+                          title="کپی متن خام خبر"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      {/* Escalation to Council Button */}
+                      <div className="flex items-center gap-2">
+                        {msg.councilVerdict ? (
+                          onNavigateToCouncil && (
+                            <button
+                              onClick={onNavigateToCouncil}
+                              className="text-xs bg-purple-900/60 hover:bg-purple-800 text-purple-200 font-semibold px-3 py-1.5 rounded-xl border border-purple-700/50 flex items-center gap-1.5 transition-all"
+                            >
+                              <span>مشاهده مذاکرات در شورا</span>
+                              <ArrowRight className="w-3.5 h-3.5 rotate-180" />
+                            </button>
+                          )
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setEscalatingItem(msg);
+                              setSelectedRounds(3);
+                            }}
+                            className="text-xs bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-semibold px-3.5 py-2 rounded-xl shadow-lg shadow-purple-600/30 flex items-center gap-1.5 active:scale-95 transition-all"
+                          >
+                            <Users className="w-3.5 h-3.5" />
+                            <span>ارجاع به شورا جهت داوری انتشار</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              );
-            }))}
+                );
+              })
+            )}
           </div>
         </div>
+      )}
 
-        {/* Col 2 & 3: AI Processing & Side-by-Side Human-in-the-Loop Review (8 cols) */}
-        <div className="lg:col-span-8 space-y-6">
-          {/* AI Settings Toolbar */}
-          <div className="p-5 rounded-2xl bg-slate-900/70 border border-slate-800 space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-amber-400" />
-                <h3 className="font-bold text-white text-sm">موتور پردازش زبانی و انتخاب قالب پرامپت</h3>
-              </div>
-              <span className="text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full font-mono">
-                مدل: Gemini 3.8 Flash (سرور)
-              </span>
+      {/* SUB-TAB 2: GEMINI 3.8 FLASH REWRITE WORKSHOP */}
+      {activeSubTab === 'rewrite' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Input Panel */}
+          <form onSubmit={handleRewrite} className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <h3 className="font-bold text-xs text-white flex items-center gap-2">
+                <SlidersHorizontal className="w-4 h-4 text-cyan-400" />
+                <span>ورودی متن و تنظیمات پرامپت</span>
+              </h3>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="text-[11px] text-slate-300 font-semibold mb-1 block">
+                متن خام خبر یا پیام مبدأ:
+              </label>
+              <textarea
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                rows={6}
+                placeholder="متن خبر را اینجا قرار دهید..."
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-slate-200 outline-none focus:border-blue-500"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs text-slate-400 mb-1">انتخاب قالب پرامپت (Prompt Template):</label>
+                <label className="text-[11px] text-slate-300 font-semibold mb-1 block">
+                  قالب بازنویسی:
+                </label>
                 <select
                   value={selectedTemplateId}
                   onChange={(e) => setSelectedTemplateId(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 outline-none"
                 >
-                  {templates.map((tmpl) => (
-                    <option key={tmpl.id} value={tmpl.id}>
-                      {tmpl.name}
+                  {templates.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
                     </option>
                   ))}
                 </select>
               </div>
 
               <div>
-                <label className="block text-xs text-slate-400 mb-1">لحن و سبک نگارش (Tone):</label>
+                <label className="text-[11px] text-slate-300 font-semibold mb-1 block">
+                  لحن پیام:
+                </label>
                 <select
                   value={targetTone}
                   onChange={(e) => setTargetTone(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 outline-none"
                 >
-                  <option value="حرفه‌ای و ژورنالیستی">حرفه‌ای، ژورنالیستی و موثق</option>
-                  <option value="آموزشی و تحلیلی با جزئیات">آموزشی و تحلیلی با جزئیات عمیق</option>
-                  <option value="کوتاه و ترغیب‌کننده تلگرامی">کوتاه، پرانرژی و ترغیب‌کننده</option>
-                  <option value="انتقادی و نکته‌سنج">انتقادی و نکته‌سنج</option>
+                  <option value="حرفه‌ای و ژورنالیستی">حرفه‌ای و ژورنالیستی</option>
+                  <option value="فوری و هیجانی تلگرامی">فوری و پرکشش</option>
+                  <option value="تحلیلی و علمی عمیق">تحلیلی و موشکافانه</option>
+                  <option value="ساده و همه‌فهم برای عموم">روان و خودمانی</option>
                 </select>
               </div>
             </div>
 
             <div>
-              <label className="block text-xs text-slate-400 mb-1">دستورالعمل اختصاصی برای این پست (اختیاری):</label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={customInstruction}
-                  onChange={(e) => setCustomInstruction(e.target.value)}
-                  placeholder="مثال: حتماً روی کاربرد این فناوری برای کاربران ایرانی تاکید کن..."
-                  className="flex-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-                />
-                <button
-                  onClick={handleRunAiProcess}
-                  disabled={isProcessingAI || !selectedMessage}
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold transition shrink-0 flex items-center gap-1.5 shadow-md shadow-indigo-600/20 disabled:opacity-50"
-                >
-                  {isProcessingAI ? (
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Sparkles className="w-4 h-4 text-amber-300" />
-                  )}
-                  اجرای بازنویسی با هوش مصنوعی
-                </button>
+              <label className="text-[11px] text-slate-300 font-semibold mb-1 block">
+                دستورالعمل اختصاصی برای مدل (اختیاری):
+              </label>
+              <input
+                type="text"
+                value={customInstruction}
+                onChange={(e) => setCustomInstruction(e.target.value)}
+                placeholder="مثلاً: روی ابعاد اقتصادی تمرکز کن..."
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 outline-none"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={isProcessing || !inputText.trim()}
+              className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 text-white text-xs font-semibold py-2.5 rounded-xl flex items-center justify-center gap-2 transition-all"
+            >
+              {isProcessing ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Sparkles className="w-4 h-4" />
+              )}
+              <span>پردازش و بازنویسی با Gemini 3.8 Flash</span>
+            </button>
+          </form>
+
+          {/* Output Panel */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                <h3 className="font-bold text-xs text-white flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                  <span>پست آماده و ممیزی کپی‌رایت</span>
+                </h3>
+                {similarityScore !== null && (
+                  <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
+                    میزان تشابه لفظی: {similarityScore}% (کاملاً امن)
+                  </span>
+                )}
+              </div>
+
+              <div className="mt-3 bg-slate-950 rounded-xl p-4 border border-slate-800 min-h-[220px] text-xs leading-relaxed text-slate-200 whitespace-pre-line">
+                {rewrittenResult ? (
+                  rewrittenResult
+                ) : (
+                  <div className="h-44 flex flex-col items-center justify-center text-slate-500 text-xs">
+                    <span>متن خروجی پس از پردازش اینجا نمایش داده خواهد شد.</span>
+                  </div>
+                )}
               </div>
             </div>
-          </div>
 
-          {/* Human-in-the-Loop Review Box: Original vs Rewritten */}
-          <div className="p-5 rounded-2xl bg-slate-900/70 border border-slate-800 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="w-5 h-5 text-emerald-400" />
-                <div>
-                  <h3 className="font-bold text-white text-sm">مرحله تایید دستی (Human-in-the-Loop Review)</h3>
-                  <p className="text-xs text-slate-400">بررسی قبل از انتشار برای جلوگیری از خطای محتوایی و نقض کپی‌رایت</p>
+            {rewrittenResult && (
+              <div className="space-y-3 pt-3 border-t border-slate-800">
+                {costInfo && (
+                  <div className="text-[11px] text-slate-400 flex items-center justify-between font-mono">
+                    <span>توکن‌های مصرفی: {costInfo.tokens}</span>
+                    <span className="text-emerald-400">
+                      هزینه: ${costInfo.costUsd?.toFixed(6)} (~{costInfo.costToman} تومان)
+                    </span>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={copyToClipboard}
+                    className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs py-2 rounded-xl flex items-center justify-center gap-2"
+                  >
+                    {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{isCopied ? 'کپی شد!' : 'کپی متن'}</span>
+                  </button>
+                  <button
+                    onClick={handleSaveToPost}
+                    disabled={isSavingPost}
+                    className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold py-2 rounded-xl flex items-center justify-center gap-2"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>ذخیره به عنوان پست تلگرام</span>
+                  </button>
                 </div>
               </div>
+            )}
+          </div>
+        </div>
+      )}
 
-              {/* Copyright Safety Badge */}
-              <div className="flex items-center gap-2 text-xs">
-                <span className="text-slate-400">ریسک مشابهت:</span>
-                <span
-                  className={`px-2.5 py-0.5 rounded-full font-bold ${
-                    similarityScore < 20
-                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
-                      : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
-                  }`}
-                >
-                  {similarityScore}٪ (محتوای اختصاصی و امن)
+      {/* MODAL 1: ESCALATE TO COUNCIL WITH USER-DEFINED ROUNDS */}
+      {escalatingItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="bg-slate-900 border border-purple-500/40 rounded-2xl w-full max-w-xl p-6 shadow-2xl space-y-5" dir="rtl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center">
+                  <Users className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-white">
+                    ارجاع خبر به شورای ایجنت‌ها جهت تصمیم‌گیری پیرامون انتشار
+                  </h3>
+                  <span className="text-xs text-slate-400">
+                    پروتکل مباحثه متقابل و رأی‌گیری چند دور
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setEscalatingItem(null)}
+                className="text-slate-400 hover:text-slate-200 text-xs"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* News summary preview */}
+            <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 text-xs space-y-1.5">
+              <div className="flex items-center justify-between text-[11px] text-slate-400">
+                <span>منبع: {escalatingItem.sourceChannelName}</span>
+                <span className="text-amber-400 font-bold">شاخص اهمیت: %{escalatingItem.importanceScore || 85}</span>
+              </div>
+              <div className="font-semibold text-slate-200">{escalatingItem.topic}</div>
+              <p className="text-slate-300 line-clamp-2 text-[11px] leading-relaxed">
+                {escalatingItem.originalText}
+              </p>
+            </div>
+
+            {/* Rounds selector: User explicitly defines the deliberation rounds */}
+            <div className="space-y-2 bg-purple-950/20 border border-purple-900/30 p-4 rounded-xl">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-purple-200 flex items-center gap-2">
+                  <SlidersHorizontal className="w-4 h-4 text-purple-400" />
+                  <span>تعداد دورهای مباحثه و چالش شورا (تعیین‌شده توسط شما):</span>
+                </label>
+                <span className="text-xs font-bold text-purple-300 font-mono bg-purple-900/40 px-2 py-0.5 rounded border border-purple-700/50">
+                  {selectedRounds} دور گفتگوی متقابل
                 </span>
               </div>
+
+              <div className="grid grid-cols-5 gap-2 pt-2">
+                {[1, 2, 3, 4, 5].map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setSelectedRounds(r)}
+                    className={`py-2 text-xs font-bold rounded-xl border transition-all ${
+                      selectedRounds === r
+                        ? 'bg-purple-600 text-white border-purple-400 shadow-md shadow-purple-600/40 scale-105'
+                        : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    {r} {r === 1 ? 'دور' : 'دور'}
+                  </button>
+                ))}
+              </div>
+
+              <p className="text-[11px] text-purple-300/80 leading-relaxed pt-1">
+                💡 <span className="font-semibold text-purple-200">سازوکار چند دور:</span> در هر دور، اعضای شورا پیام‌های یکدیگر را می‌بینند، به استدلال‌های هم پاسخ داده و یکدیگر را نقد می‌کنند. در دور نهایی، هر عضو رأی قطعی می‌دهد و شورا مصوب می‌کند که آیا خبر باید در کانال تلگرام منتشر شود یا خیر.
+              </p>
             </div>
 
-            {copyrightNotice && (
-              <div className="p-3 rounded-xl bg-emerald-950/20 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 shrink-0" />
-                <span>{copyrightNotice}</span>
-              </div>
-            )}
-
-            {approvalNotice && (
-              <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/50 text-emerald-300 text-xs flex items-center gap-2 font-medium">
-                <CheckCircle2 className="w-4 h-4 shrink-0" />
-                <span>{approvalNotice}</span>
-              </div>
-            )}
-
-            {/* Side-by-side comparison */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Original Content */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span className="font-semibold text-slate-300">متن منبع (Original Source)</span>
-                  <span className="font-mono text-[11px] dir-ltr text-amber-400/80">
-                    {selectedMessage?.sourceChannelName}
-                  </span>
-                </div>
-                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800/80 text-xs text-slate-400 h-72 overflow-y-auto leading-relaxed select-text">
-                  {selectedMessage ? selectedMessage.originalText : 'پیامی انتخاب نشده است.'}
-                </div>
-              </div>
-
-              {/* Rewritten AI Output (Editable) */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span className="font-semibold text-emerald-400 flex items-center gap-1">
-                    <Sparkles className="w-3.5 h-3.5" />
-                    خروجی بازنویسی‌شده (قابل ویرایش شما)
-                  </span>
-                  <span className="text-[11px] text-slate-500">
-                    طول: {processedOutput ? processedOutput.length : 0} کاراکتر
-                  </span>
-                </div>
-                <textarea
-                  value={processedOutput || ''}
-                  onChange={(e) => setProcessedOutput(e.target.value)}
-                  placeholder="پس از اجرای بازنویسی، نتیجه در این قسمت قرار می‌گیرد و شما می‌توانید آن را قبل از انتشار ویرایش کنید..."
-                  className="w-full p-4 rounded-xl bg-slate-950 border border-slate-700 text-xs text-slate-100 h-72 focus:outline-none focus:border-emerald-500 leading-relaxed font-sans"
-                />
-              </div>
+            {/* Custom Instruction for Council */}
+            <div>
+              <label className="text-[11px] text-slate-300 font-semibold mb-1 block">
+                دستورالعمل خاص مدیر برای جلسه شورا (اختیاری):
+              </label>
+              <input
+                type="text"
+                value={managerInstruction}
+                onChange={(e) => setManagerInstruction(e.target.value)}
+                placeholder="مثلاً: در صورت عدم وجود بیانیه وزارت خارجه، انتشار را رد کنید..."
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 outline-none focus:border-purple-500"
+              />
             </div>
 
-            {/* Approval Controls */}
-            <div className="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-slate-800">
-              <div className="text-xs text-slate-400">
-                ارسال به کانال مقصد:{' '}
-                <strong className="text-slate-200">
-                  {destinationChannels[0]?.title || 'پالس تکنولوژی'} ({destinationChannels[0]?.username})
-                </strong>
-              </div>
+            {/* Actions */}
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+              <button
+                onClick={() => setEscalatingItem(null)}
+                className="text-xs px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+              >
+                انصراف
+              </button>
 
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setProcessedOutput(null)}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs transition"
-                >
-                  پاک‌سازی
-                </button>
-                <button
-                  onClick={handleApproveAndSchedule}
-                  disabled={isApproving || !processedOutput}
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-md shadow-emerald-600/20 disabled:opacity-50"
-                >
-                  {isApproving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                  تایید دستی و افزودن به صف زمان‌بندی
-                </button>
-              </div>
+              <button
+                onClick={handleEscalateToCouncil}
+                disabled={isEscalating}
+                className="flex items-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-semibold px-5 py-2 rounded-xl shadow-lg shadow-purple-600/30 disabled:opacity-50 active:scale-95 transition-all"
+              >
+                {isEscalating ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Users className="w-4 h-4" />
+                )}
+                <span>آغاز داوری شورا ({selectedRounds} دور متوالی)</span>
+              </button>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Modal: Add Prompt Template */}
-      {isAddingTemplate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 space-y-4">
-            <h3 className="font-bold text-white text-base">افزودن قالب پرامپت اختصاصی (Prompt Template)</h3>
-            <form onSubmit={handleCreateTemplate} className="space-y-4">
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">نام قالب پرامپت:</label>
-                <input
-                  type="text"
-                  value={newTemplateName}
-                  onChange={(e) => setNewTemplateName(e.target.value)}
-                  placeholder="مثال: گزارش تحلیلی برای توسعه‌دهندگان فرانت‌اند"
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:border-indigo-500 focus:outline-none"
-                  required
-                />
+      {/* MODAL 2: ADD MANUAL MONITORED NEWS */}
+      {showAddNewsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+          <form
+            onSubmit={handleCreateNews}
+            className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-4"
+            dir="rtl"
+          >
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <Plus className="w-5 h-5 text-emerald-400" />
+                <h3 className="font-bold text-sm text-white">ثبت خبر جدید در رصد و پالایش محتوا</h3>
               </div>
+              <button
+                type="button"
+                onClick={() => setShowAddNewsModal(false)}
+                className="text-slate-400 hover:text-slate-200 text-xs"
+              >
+                ✕
+              </button>
+            </div>
 
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">دستورالعمل کامل سیستم (System Prompt):</label>
-                <textarea
-                  value={newTemplatePrompt}
-                  onChange={(e) => setNewTemplatePrompt(e.target.value)}
-                  rows={6}
-                  placeholder="شما یک دستیار تخصصی تلگرام هستید. متن را تحلیل کن، نکات کدنویسی را استخراج کن..."
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:border-indigo-500 focus:outline-none leading-relaxed"
-                  required
-                />
-              </div>
+            <div>
+              <label className="text-[11px] text-slate-300 font-semibold mb-1 block">
+                نام یا آیدی کانال مبدأ:
+              </label>
+              <input
+                type="text"
+                value={newNewsSource}
+                onChange={(e) => setNewNewsSource(e.target.value)}
+                placeholder="مثلاً: کانال خبرگزاری رویترز / ایرنا"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 outline-none"
+              />
+            </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsAddingTemplate(false)}
-                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl text-xs hover:bg-slate-700 transition"
-                >
-                  انصراف
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-semibold hover:bg-indigo-500 transition"
-                >
-                  ذخیره قالب
-                </button>
-              </div>
-            </form>
-          </div>
+            <div>
+              <label className="text-[11px] text-slate-300 font-semibold mb-1 block">
+                موضوع یا تیتر خبر (اختیاری):
+              </label>
+              <input
+                type="text"
+                value={newNewsTopic}
+                onChange={(e) => setNewNewsTopic(e.target.value)}
+                placeholder="مثلاً: بیانیه فوری شورای امنیت درباره خاورمیانه"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="text-[11px] text-slate-300 font-semibold mb-1 block">
+                متن کامل خبر رصدشده:
+              </label>
+              <textarea
+                value={newNewsText}
+                onChange={(e) => setNewNewsText(e.target.value)}
+                rows={5}
+                required
+                placeholder="متن خبر را اینجا قرار دهید تا فوریت و ارزش خبری آن توسط هوش مصنوعی ارزیابی شود..."
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-slate-200 outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowAddNewsModal(false)}
+                className="text-xs px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+              >
+                انصراف
+              </button>
+
+              <button
+                type="submit"
+                disabled={isSubmittingNews || !newNewsText.trim()}
+                className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-5 py-2 rounded-xl shadow-lg shadow-emerald-600/30 disabled:opacity-50 transition-all"
+              >
+                {isSubmittingNews ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Check className="w-4 h-4" />
+                )}
+                <span>ثبت خبر و آغاز پالایش</span>
+              </button>
+            </div>
+          </form>
         </div>
       )}
     </div>

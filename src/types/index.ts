@@ -1,9 +1,11 @@
+export type NavTab = 'bot' | 'keys' | 'ingest' | 'media' | 'council' | 'queue';
+
 export interface TelegramBotConfig {
   botToken: string;
   botUsername: string;
   botName: string;
   isConnected: boolean;
-  status: string;
+  status: 'online' | 'offline' | 'error';
   webhookUrl: string;
 }
 
@@ -17,6 +19,7 @@ export interface Channel {
   filterRules?: string[];
   lastSyncedAt?: string;
   status: 'active' | 'paused' | 'error';
+  telegramId?: string;
 }
 
 export interface ScheduledPost {
@@ -26,14 +29,19 @@ export interface ScheduledPost {
   mediaType: 'text' | 'photo' | 'video' | 'audio' | 'mixed';
   mediaUrl?: string;
   audioUrl?: string;
-  destinationChannelIds: string[];
-  scheduledAt: string;
+  destinationChannelIds?: string[];
+  targetChannelIds?: string[];
+  scheduledAt?: string;
+  scheduledTime?: string;
   status: 'draft' | 'pending_review' | 'scheduled' | 'published' | 'failed';
   originalSourceId?: string;
-  plagiarismRiskScore: number;
-  tags: string[];
+  plagiarismRiskScore?: number;
+  similarityScore?: number;
+  approvedByCouncil?: boolean;
+  councilConsensusVotes?: number;
+  tags?: string[];
   views?: number;
-  costEstimatedUsd: number;
+  costEstimatedUsd?: number;
 }
 
 export interface StoredKey {
@@ -41,27 +49,28 @@ export interface StoredKey {
   provider: string;
   name: string;
   category: 'text' | 'image' | 'video' | 'audio';
+  encryptedValue: string;
   maskedValue: string;
   isActive: boolean;
   lastTestedAt?: string;
   status: 'valid' | 'invalid' | 'untested';
 }
 
-export interface RoutingConfig {
+export interface RoutingRule {
   provider: string;
   model: string;
   label: string;
 }
 
 export interface RoutingMatrix {
-  summarization: RoutingConfig;
-  ideaGeneration: RoutingConfig;
-  rewriting: RoutingConfig;
-  copyrightAudit: RoutingConfig;
-  audioScripting: RoutingConfig;
-  imageGeneration: RoutingConfig;
-  videoGeneration: RoutingConfig;
-  voiceSynthesis: RoutingConfig;
+  summarization: RoutingRule;
+  ideaGeneration: RoutingRule;
+  rewriting: RoutingRule;
+  copyrightAudit: RoutingRule;
+  audioScripting: RoutingRule;
+  imageGeneration: RoutingRule;
+  videoGeneration: RoutingRule;
+  voiceSynthesis: RoutingRule;
 }
 
 export interface PromptTemplate {
@@ -81,43 +90,19 @@ export interface IngestedMessage {
   mediaType?: 'text' | 'photo' | 'video';
   topic: string;
   keywords: string[];
-  processingStatus: 'new' | 'rewritten' | 'approved' | 'rejected';
+  processingStatus: 'new' | 'rewritten' | 'approved' | 'rejected' | 'pending' | 'in_council' | 'council_approved' | 'council_rejected';
   rewrittenText?: string;
   copyrightStatus: 'safe' | 'attribution_needed' | 'high_similarity';
   similarityPercentage: number;
-}
-
-export interface CouncilConfig {
-  autonomousModeEnabled: boolean;
-  autoPublishOnConsensus: boolean;
-  emergencyKeywords: string[];
-  maxDeliberationRounds: number; // 0 for unlimited / until consensus
-  studioAccessEnabled: boolean;
-  channelPostingEnabled: boolean;
-  channelMonitoringEnabled: boolean;
-}
-
-export interface CouncilEmergencySession {
-  id: string;
-  topic: string;
-  triggerType: 'manual' | 'autonomous_breaking_news';
-  status: 'active' | 'consensus_reached' | 'published';
-  consensusText?: string;
-  verificationReport?: {
-    isVerified: boolean;
-    sourcesCount: number;
-    verdict: string;
-    confidenceScore: number;
-  };
-  generatedMedia?: {
-    type: 'image' | 'audio' | 'video';
-    url: string;
-    caption?: string;
-  };
-  roundsCount: number;
-  startedAt: string;
-  completedAt?: string;
-  publishedPostId?: string;
+  importanceScore?: number;
+  urgencyLevel?: 'critical' | 'high' | 'normal' | 'low';
+  isImportant?: boolean;
+  importanceReason?: string;
+  factCredibilityScore?: number;
+  councilVerdict?: 'approved' | 'rejected' | 'revised';
+  councilDeliberationId?: string;
+  councilRounds?: number;
+  councilDecisionSummary?: string;
 }
 
 export interface CouncilAgent {
@@ -141,6 +126,10 @@ export interface CouncilMessage {
   avatar?: string;
   text: string;
   timestamp: string;
+  roundNumber?: number;
+  totalRounds?: number;
+  replyingToAgentName?: string;
+  replyingToQuote?: string;
   toolInvocations?: Array<{
     toolName: string;
     toolInput: string;
@@ -154,31 +143,81 @@ export interface CouncilMessage {
   publishedPostId?: string;
   consensusVote?: 'approve' | 'revise' | 'reject';
   isEmergencySessionMessage?: boolean;
+  isDeliberationSessionMessage?: boolean;
+  sourceMessageId?: string;
+}
+
+export interface CouncilDeliberationSession {
+  id: string;
+  sourceMessageId?: string;
+  newsTitle: string;
+  newsText: string;
+  sourceChannelName: string;
+  importanceScore?: number;
+  urgencyLevel?: 'critical' | 'high' | 'normal' | 'low';
+  roundsCount: number;
+  status: 'deliberating' | 'decided' | 'published';
+  verdict: 'approved' | 'rejected' | 'revised';
+  verdictSummary: string;
+  votes: {
+    approve: number;
+    reject: number;
+    revise: number;
+  };
+  telegramDraft?: string;
+  mediaAttachment?: {
+    type: 'image' | 'audio';
+    url: string;
+  };
+  publishedPostId?: string;
+  startedAt: string;
+  completedAt?: string;
+}
+
+export interface CouncilConfig {
+  autonomousModeEnabled: boolean;
+  autoPublishOnConsensus: boolean;
+  emergencyKeywords: string[];
+  maxDeliberationRounds: number;
+  studioAccessEnabled: boolean;
+  channelPostingEnabled: boolean;
+  channelMonitoringEnabled: boolean;
+}
+
+export interface CouncilEmergencySession {
+  id: string;
+  topic: string;
+  triggerType: 'manual' | 'autonomous_breaking_news';
+  status: 'active' | 'consensus_reached' | 'published';
+  consensusText?: string;
+  verificationReport?: {
+    isVerified: boolean;
+    sourcesCount: number;
+    verdict: string;
+    confidenceScore: number;
+  };
+  generatedMedia?: {
+    type: 'image' | 'audio' | 'video';
+    url: string;
+    caption: string;
+  };
+  roundsCount?: number;
+  startedAt: string;
+  completedAt?: string;
+  publishedPostId?: string;
 }
 
 export interface QueueJob {
   id: string;
   taskType: 'video_generation' | 'audio_synthesis' | 'batch_crawler' | 'ai_synthesis';
   title?: string;
-  type?: string;
-  provider?: string;
-  result?: string;
   payload: any;
   status: 'queued' | 'processing' | 'completed' | 'failed';
   progress: number;
   createdAt: string;
-  completedAt?: string;
   estimatedCompletionSeconds: number;
   resultUrl?: string;
   error?: string;
-}
-
-export interface CostReport {
-  totalTodayUsd: number;
-  totalTodayToman: number;
-  totalMonthUsd?: number;
-  totalMonthToman?: number;
-  byProvider: Record<string, { usd: number; toman: number; calls: number }>;
 }
 
 export interface CostLog {
@@ -191,4 +230,10 @@ export interface CostLog {
   outputTokens: number;
   costUsd: number;
   costToman: number;
+}
+
+export interface CostReport {
+  totalTodayUsd: number;
+  totalTodayToman: number;
+  logs: CostLog[];
 }

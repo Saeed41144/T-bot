@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Header } from './components/Header';
-import { Sidebar, NavTab } from './components/Sidebar';
+import { Sidebar } from './components/Sidebar';
 import { TelegramBotModule } from './components/TelegramBotModule';
 import { KeyVaultModule } from './components/KeyVaultModule';
 import { ContentIngestionModule } from './components/ContentIngestionModule';
@@ -10,6 +10,7 @@ import { CostAndQueueModule } from './components/CostAndQueueModule';
 import { ArchitectureModal } from './components/ArchitectureModal';
 import { api } from './services/api';
 import {
+  NavTab,
   TelegramBotConfig,
   Channel,
   ScheduledPost,
@@ -21,13 +22,14 @@ import {
   CouncilMessage,
   CouncilConfig,
   CouncilEmergencySession,
+  CouncilDeliberationSession,
   QueueJob,
   CostReport,
 } from './types';
 import { Loader2 } from 'lucide-react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<NavTab>('bot');
+  const [activeTab, setActiveTab] = useState<NavTab>('council');
   const [isArchitectureOpen, setIsArchitectureOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -43,6 +45,7 @@ export default function App() {
   const [councilMessages, setCouncilMessages] = useState<CouncilMessage[]>([]);
   const [councilConfig, setCouncilConfig] = useState<CouncilConfig | undefined>(undefined);
   const [activeEmergencySession, setActiveEmergencySession] = useState<CouncilEmergencySession | null>(null);
+  const [activeDeliberationSession, setActiveDeliberationSession] = useState<CouncilDeliberationSession | null>(null);
   const [jobs, setJobs] = useState<QueueJob[]>([]);
   const [costReport, setCostReport] = useState<CostReport | null>(null);
 
@@ -84,6 +87,7 @@ export default function App() {
         setCouncilMessages(councilRes.messages || []);
         if (councilRes.config) setCouncilConfig(councilRes.config);
         setActiveEmergencySession(councilRes.activeEmergencySession || null);
+        setActiveDeliberationSession(councilRes.activeDeliberationSession || null);
       }
       setJobs(jobRes);
       setCostReport(costRes);
@@ -96,20 +100,20 @@ export default function App() {
 
   useEffect(() => {
     loadAllData();
-    // Poll updates every 25 seconds
-    const interval = setInterval(loadAllData, 25000);
+    const interval = setInterval(loadAllData, 20000);
     return () => clearInterval(interval);
   }, [loadAllData]);
 
   const pendingReviewsCount = ingestedMessages.filter(
-    (m) => m.processingStatus === 'pending'
+    (m) => m.processingStatus === 'pending' || m.processingStatus === 'new'
   ).length;
-  const scheduledPostsCount = posts.filter((p) => p.status === 'scheduled').length;
+  const scheduledPostsCount = posts.filter((p) => p.status === 'scheduled' || p.status === 'draft').length;
   const activeJobsCount = jobs.filter(
     (j) => j.status === 'processing' || j.status === 'queued'
   ).length;
 
   const destinationChannels = channels.filter((c) => c.type === 'destination');
+  const sourceChannels = channels.filter((c) => c.type === 'source');
 
   if (isLoading) {
     return (
@@ -144,6 +148,20 @@ export default function App() {
         {/* Viewport Content */}
         <main className="flex-1 overflow-y-auto p-6 md:p-8 bg-slate-950/90">
           <div className="max-w-7xl mx-auto">
+            {activeTab === 'council' && (
+              <CouncilModule
+                agents={agents}
+                messages={councilMessages}
+                config={councilConfig}
+                activeEmergencySession={activeEmergencySession}
+                activeDeliberationSession={activeDeliberationSession}
+                destinationChannels={destinationChannels}
+                sourceChannels={sourceChannels}
+                onRefresh={loadAllData}
+                onPostCreated={() => setActiveTab('bot')}
+              />
+            )}
+
             {activeTab === 'bot' && (
               <TelegramBotModule
                 botConfig={botConfig}
@@ -167,6 +185,7 @@ export default function App() {
                 templates={templates}
                 destinationChannels={destinationChannels}
                 onRefresh={loadAllData}
+                onNavigateToCouncil={() => setActiveTab('council')}
               />
             )}
 
@@ -174,19 +193,6 @@ export default function App() {
               <MultimediaModule
                 destinationChannels={destinationChannels}
                 onRefresh={loadAllData}
-              />
-            )}
-
-            {activeTab === 'council' && (
-              <CouncilModule
-                agents={agents}
-                messages={councilMessages}
-                config={councilConfig}
-                activeEmergencySession={activeEmergencySession}
-                destinationChannels={destinationChannels}
-                sourceChannels={channels.filter((c) => c.type === 'source')}
-                onRefresh={loadAllData}
-                onPostCreated={() => setActiveTab('bot')}
               />
             )}
 
@@ -201,7 +207,7 @@ export default function App() {
         </main>
       </div>
 
-      {/* Technical Architecture & Database Schema Modal */}
+      {/* Technical Architecture Modal */}
       <ArchitectureModal
         isOpen={isArchitectureOpen}
         onClose={() => setIsArchitectureOpen(false)}

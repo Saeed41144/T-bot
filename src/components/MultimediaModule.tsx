@@ -1,528 +1,285 @@
 import React, { useState } from 'react';
+import { Channel } from '../types';
+import { api } from '../services/api';
 import {
   Sparkles,
   Image as ImageIcon,
+  Volume2,
   Video,
-  Mic,
-  Play,
-  Pause,
   Send,
-  Calendar,
-  Layers,
+  Loader2,
   CheckCircle2,
-  RefreshCw,
-  Eye,
-  Sliders,
-  Share2,
+  Play,
+  Layers,
+  Wand2,
 } from 'lucide-react';
-import { Channel } from '../types';
-import { api } from '../services/api';
 
-interface Props {
+interface MultimediaModuleProps {
   destinationChannels: Channel[];
   onRefresh: () => void;
 }
 
-export const MultimediaModule: React.FC<Props> = ({ destinationChannels, onRefresh }) => {
-  const [activeMediaTab, setActiveMediaTab] = useState<'image' | 'video' | 'audio'>('image');
-
-  // Generation parameters
-  const [imagePrompt, setImagePrompt] = useState('یک ربات آینده‌نگر با نورهای نئونی در حال کار با تلگرام، کیفیت بالا');
-  const [imageProvider, setImageProvider] = useState('DALL-E 3');
-  const [imageStyle, setImageStyle] = useState('cinematic');
-
-  const [videoPrompt, setVideoPrompt] = useState('پرواز دوربین در یک شهر دیجیتال با تم هوش مصنوعی و شبکه عصبی');
-  const [videoProvider, setVideoProvider] = useState('Runway Gen-3');
-
-  const [audioPrompt, setAudioPrompt] = useState('پادکست کوتاه تلگرامی: درود به همراهان گرامی کانال، امروز با بررسی آخرین تحولات کلود در خدمت شما هستیم...');
-  const [voiceProvider, setVoiceProvider] = useState('ElevenLabs');
-  const [voiceActor, setVoiceActor] = useState('آرش (فارسی طبیعی و فاخر)');
-
+export const MultimediaModule: React.FC<MultimediaModuleProps> = ({
+  destinationChannels,
+  onRefresh,
+}) => {
+  const [activeTab, setActiveTab] = useState<'image' | 'audio' | 'video'>('image');
+  const [prompt, setPrompt] = useState('');
+  const [style, setStyle] = useState('سینمایی و واقع‌گرایانه (Cinematic 4K)');
+  const [voice, setVoice] = useState('گوینده رسمی خبری تلگرام (مرد، بم و رسا)');
   const [isGenerating, setIsGenerating] = useState(false);
-  const [genNotice, setGenNotice] = useState<string | null>(null);
+  const [generatedMedia, setGeneratedMedia] = useState<{
+    type: 'image' | 'audio' | 'video';
+    url: string;
+    caption: string;
+  } | null>(null);
 
-  // Generated Assets
-  const [selectedImage, setSelectedImage] = useState<string>(
-    'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1000&auto=format&fit=crop&q=80'
-  );
-  const [selectedVideo, setSelectedVideo] = useState<string | null>(null);
-  const [selectedAudio, setSelectedAudio] = useState<string | null>(
-    'https://actions.google.com/sounds/v1/ambiences/coffee_shop.ogg'
-  );
+  const handleGenerate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!prompt.trim() || isGenerating) return;
 
-  // Composer States
-  const [postCaption, setPostCaption] = useState(`🔥 پست جدید کانال
-
-متن توضیحات و محتوای چندرسانه‌ای را در این کادر بازنویسی یا تکمیل نمایید.
-
-#هوش_مصنوعی #فناوری #پست_جدید`);
-  const [selectedDestId, setSelectedDestId] = useState(destinationChannels[0]?.id || '');
-  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
-  const [audioElem, setAudioElem] = useState<HTMLAudioElement | null>(null);
-
-  const [isSending, setIsSending] = useState(false);
-  const [sentSuccessNotice, setSentSuccessNotice] = useState<string | null>(null);
-
-  const handleGenerateMedia = async () => {
     setIsGenerating(true);
-    setGenNotice(null);
     try {
-      const type = activeMediaTab;
-      const prompt = type === 'image' ? imagePrompt : type === 'video' ? videoPrompt : audioPrompt;
-      const provider = type === 'image' ? imageProvider : type === 'video' ? videoProvider : voiceProvider;
-
       const res = await api.generateMedia({
-        type,
-        prompt,
-        provider,
-        style: imageStyle,
-        voice: voiceActor,
+        type: activeTab,
+        prompt: prompt.trim(),
+        style,
+        voice,
       });
 
-      setGenNotice(
-        `✅ تسک تولید ${type === 'image' ? 'تصویر' : type === 'video' ? 'ویدیو' : 'صدا'} به صف کارهای غیرهمزمان ارسال شد. (هزینه تخمینی: $${res.estimatedCostUsd} / ${res.estimatedCostToman.toLocaleString('fa-IR')} تومان)`
-      );
+      // Simulate completion in few seconds
+      setTimeout(() => {
+        let resultUrl = 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1000&auto=format&fit=crop&q=80';
+        if (activeTab === 'audio') {
+          resultUrl = 'https://actions.google.com/sounds/v1/science_fiction/scifi_hum.ogg';
+        } else if (activeTab === 'video') {
+          resultUrl = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
+        }
 
-      // Simulate completion for preview
-      if (type === 'image') {
-        setSelectedImage('https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=1000&auto=format&fit=crop&q=80');
-      } else if (type === 'video') {
-        setSelectedVideo('https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4');
-      } else {
-        setSelectedAudio('https://actions.google.com/sounds/v1/science_fiction/scifi_hum.ogg');
-      }
-
-      onRefresh();
-    } catch {
-      setGenNotice('خطا در فراخوانی درگاه تولید رسانه.');
-    } finally {
+        setGeneratedMedia({
+          type: activeTab,
+          url: resultUrl,
+          caption: prompt.trim(),
+        });
+        setIsGenerating(false);
+        onRefresh();
+      }, 3000);
+    } catch (err) {
+      console.error('Media generation error:', err);
       setIsGenerating(false);
     }
   };
 
-  const handleToggleAudio = () => {
-    if (!selectedAudio) return;
-    if (isPlayingAudio) {
-      audioElem?.pause();
-      setIsPlayingAudio(false);
-    } else {
-      const audio = audioElem || new Audio(selectedAudio);
-      audio.onended = () => setIsPlayingAudio(false);
-      audio.play().catch(() => {});
-      setAudioElem(audio);
-      setIsPlayingAudio(true);
-    }
-  };
-
-  const handlePublishPost = async () => {
-    setIsSending(true);
-    setSentSuccessNotice(null);
+  const handleSendToDraft = async () => {
+    if (!generatedMedia) return;
     try {
-      const res = await api.sendPostDirectly({
-        channelId: selectedDestId,
-        postTitle: 'پست ترکیبی چندرسانه‌ای',
-        text: postCaption,
-        mediaUrl: selectedImage,
-        mediaType: 'mixed',
+      await api.createPost({
+        title: `پست چندرسانه‌ای: ${generatedMedia.caption.slice(0, 35)}...`,
+        content: `🎨 تولید اختصاصی استودیو چندرسانه‌ای TeleMasters\n\n📌 موضوع: ${generatedMedia.caption}\n\n#چندرسانه‌ای #هوش_مصنوعی`,
+        mediaType: generatedMedia.type === 'image' ? 'photo' : generatedMedia.type === 'video' ? 'video' : 'audio',
+        mediaUrl: generatedMedia.url,
+        audioUrl: generatedMedia.type === 'audio' ? generatedMedia.url : undefined,
+        destinationChannelIds: destinationChannels.map((c) => c.id),
+        status: 'draft',
       });
-      setSentSuccessNotice(`✅ پست چندرسانه‌ای با موفقیت در کانال منتشر شد!`);
+      alert('فایل چندرسانه‌ای با موفقیت به صف پیش‌نویس‌های پست تلگرام اضافه شد.');
       onRefresh();
-      setTimeout(() => setSentSuccessNotice(null), 5000);
-    } catch {
-      setSentSuccessNotice('خطا در ارسال پست به تلگرام.');
-    } finally {
-      setIsSending(false);
+    } catch (err) {
+      console.error('Error adding media to post:', err);
     }
-  };
-
-  const handleSchedulePost = async () => {
-    await api.createPost({
-      title: 'پست چندرسانه‌ای (متن + مدیا + وویس)',
-      content: postCaption,
-      mediaType: 'mixed',
-      mediaUrl: selectedImage,
-      audioUrl: selectedAudio || undefined,
-      destinationChannelIds: [selectedDestId],
-      scheduledAt: new Date(Date.now() + 3600000 * 3).toISOString(),
-      status: 'scheduled',
-      plagiarismRiskScore: 6,
-      tags: ['چندرسانه‌ای', 'پادکست', 'هوش_مصنوعی'],
-    });
-    setSentSuccessNotice('✅ پست در صف انتشار تقویم زمان‌بندی ذخیره شد.');
-    onRefresh();
-    setTimeout(() => setSentSuccessNotice(null), 5000);
   };
 
   return (
-    <div className="space-y-6" dir="rtl">
-      {/* Top Banner */}
-      <div className="p-6 rounded-2xl bg-gradient-to-r from-slate-900 via-slate-900 to-rose-950/30 border border-slate-800 shadow-xl">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-rose-600/20 text-rose-400 flex items-center justify-center border border-rose-500/30 shadow-inner">
-              <Sparkles className="w-6 h-6" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-xl font-bold text-white">استودیوی تولید چندرسانه‌ای و ترکیب پست نهایی</h2>
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/30">
-                  متن + تصویر + ویدیو + وویس
-                </span>
-              </div>
-              <p className="text-xs text-slate-400">
-                یکپارچه‌سازی سرویس‌های DALL·E، Midjourney، Runway، Sora و ElevenLabs در قالب یک پست فوق‌حرفه‌ای تلگرامی
-              </p>
-            </div>
-          </div>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex items-start gap-4">
+        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-600 via-pink-600 to-indigo-600 text-white flex items-center justify-center shrink-0 shadow-lg shadow-purple-500/20">
+          <Sparkles className="w-6 h-6" />
+        </div>
+        <div>
+          <h2 className="text-sm font-bold text-white">
+            استودیو چندرسانه‌ای و موتور هوش مصنوعی نسل جدید (DALL·E, Midjourney, ElevenLabs, Runway)
+          </h2>
+          <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+            تولید کاورهای گرافیکی 4K با هوش مصنوعی، ساخت پادکست‌های صوتی فارسی تلگرام با شبیه‌ساز صدای گوینده، و تولید کلیپ‌های ویدیویی کوتاه برای انتشار همراه متن خبر.
+          </p>
         </div>
       </div>
 
-      {genNotice && (
-        <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-200 flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span>{genNotice}</span>
-        </div>
-      )}
-
-      {sentSuccessNotice && (
-        <div className="p-4 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-xs text-emerald-300 flex items-center gap-2 animate-pulse">
-          <CheckCircle2 className="w-4 h-4 shrink-0" />
-          <span>{sentSuccessNotice}</span>
-        </div>
-      )}
-
-      {/* Grid: Media Generator Studio (Left 6 cols) vs Telegram Live Post Preview (Right 6 cols) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left: Generator Tools */}
-        <div className="lg:col-span-6 p-6 rounded-2xl bg-slate-900/70 border border-slate-800 space-y-5">
-          {/* Sub-tabs: Image, Video, Voice */}
-          <div className="flex items-center gap-2 p-1.5 rounded-xl bg-slate-950 border border-slate-800">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Studio Controls */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
+          {/* Mode Tabs */}
+          <div className="grid grid-cols-3 gap-2 p-1 bg-slate-950 rounded-xl border border-slate-800 text-xs">
             <button
-              onClick={() => setActiveMediaTab('image')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition ${
-                activeMediaTab === 'image'
-                  ? 'bg-blue-600 text-white shadow-md'
-                  : 'text-slate-400 hover:text-white'
+              onClick={() => setActiveTab('image')}
+              className={`py-2 rounded-lg font-medium flex items-center justify-center gap-1.5 transition-all ${
+                activeTab === 'image'
+                  ? 'bg-purple-600 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <ImageIcon className="w-4 h-4" />
-              تولید تصویر (Image)
+              <ImageIcon className="w-3.5 h-3.5" />
+              <span>پوستر و تصویر</span>
             </button>
             <button
-              onClick={() => setActiveMediaTab('video')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition ${
-                activeMediaTab === 'video'
-                  ? 'bg-purple-600 text-white shadow-md'
-                  : 'text-slate-400 hover:text-white'
+              onClick={() => setActiveTab('audio')}
+              className={`py-2 rounded-lg font-medium flex items-center justify-center gap-1.5 transition-all ${
+                activeTab === 'audio'
+                  ? 'bg-purple-600 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <Video className="w-4 h-4" />
-              تولید ویدیو (Video)
+              <Volume2 className="w-3.5 h-3.5" />
+              <span>پادکست و صوت</span>
             </button>
             <button
-              onClick={() => setActiveMediaTab('audio')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition ${
-                activeMediaTab === 'audio'
-                  ? 'bg-emerald-600 text-white shadow-md'
-                  : 'text-slate-400 hover:text-white'
+              onClick={() => setActiveTab('video')}
+              className={`py-2 rounded-lg font-medium flex items-center justify-center gap-1.5 transition-all ${
+                activeTab === 'video'
+                  ? 'bg-purple-600 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <Mic className="w-4 h-4" />
-              صدا و گفتار (Voice/TTS)
+              <Video className="w-3.5 h-3.5" />
+              <span>ویدیو و موشن</span>
             </button>
           </div>
 
-          {/* Form fields based on tab */}
-          {activeMediaTab === 'image' && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs text-slate-400 mb-1">ارائه‌دهنده سرویس تصویر:</label>
-                  <select
-                    value={imageProvider}
-                    onChange={(e) => setImageProvider(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none"
-                  >
-                    <option value="DALL-E 3">OpenAI DALL·E 3 (کیفیت HD)</option>
-                    <option value="Midjourney API">Midjourney v6.1 (سبک هنری)</option>
-                    <option value="Stable Diffusion XL">Stable Diffusion XL (سریع)</option>
-                    <option value="Google Gemini Image">Google Gemini Flash Image</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs text-slate-400 mb-1">سبک بصری (Style):</label>
-                  <select
-                    value={imageStyle}
-                    onChange={(e) => setImageStyle(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none"
-                  >
-                    <option value="cinematic">سینمایی و واقع‌گرایانه (Cinematic)</option>
-                    <option value="digital-art">دیجیتال آرت و مفهومی (Digital Art)</option>
-                    <option value="minimalist">مینیمال و تخت تلگرامی (Minimalist)</option>
-                    <option value="3d-render">رندر سه‌بعدی و مدرن (3D Render)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">پرامپت توصیفی تصویر کاور:</label>
-                <textarea
-                  value={imagePrompt}
-                  onChange={(e) => setImagePrompt(e.target.value)}
-                  rows={3}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:border-blue-500 focus:outline-none leading-relaxed"
-                />
-              </div>
-
-              <div className="flex items-center justify-between text-xs text-slate-400 pt-1">
-                <span>هزینه تخمینی: <strong className="text-amber-300 font-mono">$0.040</strong> (۴,۰۰۰ تومان)</span>
-                <button
-                  onClick={handleGenerateMedia}
-                  disabled={isGenerating}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-md shadow-blue-600/20 disabled:opacity-50"
-                >
-                  {isGenerating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-                  تولید تصویر با {imageProvider}
-                </button>
-              </div>
+          <form onSubmit={handleGenerate} className="space-y-3">
+            <div>
+              <label className="text-[11px] text-slate-300 font-semibold mb-1 block">
+                توصیف پرامپت (Prompt) برای هوش مصنوعی:
+              </label>
+              <textarea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                rows={4}
+                placeholder={
+                  activeTab === 'image'
+                    ? 'مثلاً: پوستر مینیمال با رنگ‌های نئونی درباره هوش مصنوعی کوانتومی و سرورهای فوق پیشرفته...'
+                    : activeTab === 'audio'
+                    ? 'متن یا سناریوی پادکست خبری برای گویندگی با صدای رسا و باکیفیت...'
+                    : 'کلیپ گرافیکی کوتاه با افکت‌های نوری و دوربین سینمایی...'
+                }
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-slate-200 outline-none focus:border-purple-500"
+              />
             </div>
-          )}
 
-          {activeMediaTab === 'video' && (
-            <div className="space-y-4">
+            {activeTab === 'image' && (
               <div>
-                <label className="block text-xs text-slate-400 mb-1">موتور هوش مصنوعی ویدیو:</label>
+                <label className="text-[11px] text-slate-300 font-semibold mb-1 block">
+                  سبک هنری و استایل:
+                </label>
                 <select
-                  value={videoProvider}
-                  onChange={(e) => setVideoProvider(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none"
+                  value={style}
+                  onChange={(e) => setStyle(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 outline-none"
                 >
-                  <option value="Runway Gen-3">Runway Gen-3 Alpha (کیفیت استودیویی)</option>
-                  <option value="Pika Labs">Pika 2.0 (انیمیشن پویا)</option>
-                  <option value="Sora API">OpenAI Sora API (فوق‌العاده طبیعی)</option>
-                  <option value="Google Veo">Google Veo (۷۲۰p / ۱۰۸۰p)</option>
+                  <option value="سینمایی و واقع‌گرایانه (Cinematic 4K)">سینمایی و واقع‌گرایانه (Cinematic 4K)</option>
+                  <option value="طراحی گرافیکی تلگرامی (Modern Vector)">گرافیک خبری و اینفوگرافیک</option>
+                  <option value="سایبرپانک و دیجیتال آرت (Cyberpunk Digital Art)">سایبرپانک و هنر دیجیتال</option>
+                  <option value="عکاسی خبری ژورنالیستی (Documentary Editorial)">عکاسی مستند و خبری</option>
                 </select>
-              </div>
-
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">سناریو و پرامپت موشن ویدیو (۵ ثانیه):</label>
-                <textarea
-                  value={videoPrompt}
-                  onChange={(e) => setVideoPrompt(e.target.value)}
-                  rows={3}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:border-purple-500 focus:outline-none leading-relaxed"
-                />
-              </div>
-
-              <div className="flex items-center justify-between text-xs text-slate-400 pt-1">
-                <span>هزینه تخمینی ویدیو: <strong className="text-amber-300 font-mono">$0.150</strong> (۱۵,۰۰۰ تومان)</span>
-                <button
-                  onClick={handleGenerateMedia}
-                  disabled={isGenerating}
-                  className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-md shadow-purple-600/20 disabled:opacity-50"
-                >
-                  {isGenerating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Video className="w-3.5 h-3.5" />}
-                  تولید ویدیو و ارسال به صف
-                </button>
-              </div>
-            </div>
-          )}
-
-          {activeMediaTab === 'audio' && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs text-slate-400 mb-1">موتور سنتز صدا (TTS Engine):</label>
-                  <select
-                    value={voiceProvider}
-                    onChange={(e) => setVoiceProvider(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none"
-                  >
-                    <option value="ElevenLabs">ElevenLabs (چندزبانه فوق‌طبیعی)</option>
-                    <option value="OpenAI TTS">OpenAI TTS (مدل Alloy / Nova)</option>
-                    <option value="Google Cloud TTS">Google WaveNet (فارسی استاندارد)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs text-slate-400 mb-1">گوینده (Voice Character):</label>
-                  <select
-                    value={voiceActor}
-                    onChange={(e) => setVoiceActor(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none"
-                  >
-                    <option value="آرش (فارسی طبیعی و فاخر)">آرش (فارسی رسا، خبری)</option>
-                    <option value="سارا (لحن صمیمی و پادکستی)">سارا (لحن صمیمی، پادکستی)</option>
-                    <option value="مهران (حرفه‌ای و تبلیغاتی)">مهران (انرژیک، تبلیغاتی)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">متن نریشن صوتی (Audio Script):</label>
-                <textarea
-                  value={audioPrompt}
-                  onChange={(e) => setAudioPrompt(e.target.value)}
-                  rows={3}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:border-emerald-500 focus:outline-none leading-relaxed"
-                />
-              </div>
-
-              <div className="flex items-center justify-between text-xs text-slate-400 pt-1">
-                <span>هزینه تخمینی: <strong className="text-amber-300 font-mono">$0.015</strong> (۱,۵۰۰ تومان)</span>
-                <button
-                  onClick={handleGenerateMedia}
-                  disabled={isGenerating}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-md shadow-emerald-600/20 disabled:opacity-50"
-                >
-                  {isGenerating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Mic className="w-3.5 h-3.5" />}
-                  تولید وویس با {voiceProvider}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Caption Editor */}
-          <div className="pt-2 border-t border-slate-800 space-y-2">
-            <label className="block text-xs font-bold text-slate-200">کپشن و متن اصلی پست تلگرام:</label>
-            <textarea
-              value={postCaption}
-              onChange={(e) => setPostCaption(e.target.value)}
-              rows={4}
-              className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-100 focus:border-blue-500 focus:outline-none leading-relaxed"
-            />
-          </div>
-        </div>
-
-        {/* Right: Live Telegram Post Preview (Interactive card) */}
-        <div className="lg:col-span-6 p-6 rounded-2xl bg-slate-900/70 border border-slate-800 space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Eye className="w-4 h-4 text-sky-400" />
-              <h3 className="font-bold text-white text-base">پیش‌نمایش زنده در تلگرام (Telegram Live Preview)</h3>
-            </div>
-            <span className="text-xs text-slate-400 font-mono">طرح‌بندی استاندارد دسکتاپ/موبایل</span>
-          </div>
-
-          {/* Telegram Bubble Mockup */}
-          <div className="max-w-md mx-auto rounded-2xl bg-[#1e2329] border border-slate-700/80 shadow-2xl overflow-hidden text-slate-100">
-            {/* Telegram Channel Info Bar */}
-            <div className="px-4 py-2.5 bg-[#252a32] border-b border-slate-800 flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold text-[10px]">
-                  TM
-                </div>
-                <span className="font-semibold text-slate-200">
-                  {destinationChannels[0]?.title || 'کانال مقصد'}
-                </span>
-              </div>
-              <span className="text-[11px] text-slate-400 dir-ltr">
-                {destinationChannels[0]?.username || '@Channel'}
-              </span>
-            </div>
-
-            {/* Media Area (Photo or Video) */}
-            {selectedVideo ? (
-              <div className="relative aspect-video bg-black flex items-center justify-center">
-                <video src={selectedVideo} controls className="w-full h-full object-cover" />
-              </div>
-            ) : selectedImage ? (
-              <div className="relative aspect-video bg-slate-900 overflow-hidden group">
-                <img
-                  src={selectedImage}
-                  alt="Telegram post cover"
-                  className="w-full h-full object-cover"
-                />
-                <div className="absolute top-2 right-2 px-2 py-0.5 rounded bg-black/60 backdrop-blur-sm text-[10px] text-white">
-                  کاور هوش مصنوعی HD
-                </div>
-              </div>
-            ) : null}
-
-            {/* Voice Clip Bar (Telegram Style Audio Player) */}
-            {selectedAudio && (
-              <div className="mx-3 mt-3 p-2.5 rounded-xl bg-[#2a303b] border border-slate-700 flex items-center gap-3">
-                <button
-                  onClick={handleToggleAudio}
-                  className="w-8 h-8 rounded-full bg-blue-500 hover:bg-blue-400 text-white flex items-center justify-center transition shrink-0"
-                >
-                  {isPlayingAudio ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
-                </button>
-                <div className="flex-1 min-w-0 space-y-1">
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="font-medium text-slate-200">پادکست صوتی کانال (وویس اختصاصی)</span>
-                    <span className="font-mono text-slate-400">0:45</span>
-                  </div>
-                  {/* Waveform graphic */}
-                  <div className="flex items-center gap-0.5 h-3">
-                    {[40, 70, 90, 30, 60, 100, 85, 45, 65, 80, 50, 75, 95, 35, 60, 85, 40, 70, 90, 50].map(
-                      (h, i) => (
-                        <div
-                          key={i}
-                          className={`w-1 rounded-full ${
-                            isPlayingAudio ? 'bg-blue-400 animate-pulse' : 'bg-slate-500'
-                          }`}
-                          style={{ height: `${h}%` }}
-                        />
-                      )
-                    )}
-                  </div>
-                </div>
               </div>
             )}
 
-            {/* Post Text Caption */}
-            <div className="p-4 text-xs text-slate-200 whitespace-pre-line leading-relaxed">
-              {postCaption}
+            {activeTab === 'audio' && (
+              <div>
+                <label className="text-[11px] text-slate-300 font-semibold mb-1 block">
+                  لحن و کاراکتر گوینده:
+                </label>
+                <select
+                  value={voice}
+                  onChange={(e) => setVoice(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 outline-none"
+                >
+                  <option value="گوینده رسمی خبری تلگرام (مرد، بم و رسا)">گوینده رسمی خبری (مرد، بم و رسا)</option>
+                  <option value="گوینده پادکست تحلیلی (زن، آرام و روان)">گوینده پادکست تحلیلی (زن، آرام و روان)</option>
+                  <option value="گزارشگر فوری و مهیج (Breaking News)">گزارشگر فوری و مهیج (Breaking News)</option>
+                </select>
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={isGenerating || !prompt.trim()}
+              className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:bg-slate-800 text-white text-xs font-semibold py-2.5 rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-purple-600/20 transition-all"
+            >
+              {isGenerating ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Wand2 className="w-4 h-4" />
+              )}
+              <span>شروع پردازش در استودیو چندرسانه‌ای</span>
+            </button>
+          </form>
+        </div>
+
+        {/* Media Preview & Send */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <h3 className="font-bold text-xs text-white flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-purple-400" />
+                <span>پیش‌نمایش خروجی رندر شده</span>
+              </h3>
             </div>
 
-            {/* Post Meta & Views Footer */}
-            <div className="px-4 py-2 border-t border-slate-800/60 flex items-center justify-between text-[11px] text-slate-400">
-              <span className="flex items-center gap-1">
-                <Eye className="w-3.5 h-3.5" />
-                ۱.۲k بازدید
-              </span>
-              <span>هم‌اکنون</span>
+            <div className="mt-4 flex items-center justify-center min-h-[260px] bg-slate-950 rounded-xl border border-slate-800 p-4">
+              {isGenerating ? (
+                <div className="flex flex-col items-center gap-2 text-purple-400 text-xs">
+                  <Loader2 className="w-7 h-7 animate-spin" />
+                  <span>در حال رندر محتوای چندرسانه‌ای با کارت‌های گرافیکی ابری...</span>
+                </div>
+              ) : generatedMedia ? (
+                <div className="w-full space-y-3">
+                  {generatedMedia.type === 'image' && (
+                    <img
+                      src={generatedMedia.url}
+                      alt="رندر استودیو"
+                      className="w-full max-h-64 object-cover rounded-lg border border-slate-800"
+                    />
+                  )}
+                  {generatedMedia.type === 'audio' && (
+                    <div className="p-4 bg-slate-900 rounded-xl border border-slate-800 space-y-2">
+                      <div className="text-xs text-purple-300 font-semibold flex items-center gap-2">
+                        <Volume2 className="w-4 h-4" />
+                        <span>پادکست صوتی گوینده هوش مصنوعی (ElevenLabs)</span>
+                      </div>
+                      <audio controls src={generatedMedia.url} className="w-full h-8" />
+                    </div>
+                  )}
+                  {generatedMedia.type === 'video' && (
+                    <video
+                      controls
+                      src={generatedMedia.url}
+                      className="w-full max-h-64 rounded-lg border border-slate-800"
+                    />
+                  )}
+                  <p className="text-[11px] text-slate-300 bg-slate-900/80 p-2.5 rounded-lg border border-slate-800">
+                    پرامپت: {generatedMedia.caption}
+                  </p>
+                </div>
+              ) : (
+                <div className="text-center text-slate-500 text-xs">
+                  هیچ فایلی هنوز رندر نشده است. فرم روبه‌رو را تکمیل کنید.
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Action Buttons: Publish Directly or Schedule */}
-          <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <label className="text-xs text-slate-400 shrink-0">مقصد:</label>
-              <select
-                value={selectedDestId}
-                onChange={(e) => setSelectedDestId(e.target.value)}
-                className="w-full sm:w-auto px-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white focus:outline-none"
-              >
-                {destinationChannels.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.title} ({c.username})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+          {generatedMedia && (
+            <div className="pt-4 border-t border-slate-800">
               <button
-                onClick={handleSchedulePost}
-                className="flex-1 sm:flex-none px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5 border border-slate-700"
+                onClick={handleSendToDraft}
+                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold py-2.5 rounded-xl flex items-center justify-center gap-2 shadow"
               >
-                <Calendar className="w-3.5 h-3.5" />
-                افزودن به زمان‌بندی
-              </button>
-
-              <button
-                onClick={handlePublishPost}
-                disabled={isSending}
-                className="flex-1 sm:flex-none px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5 shadow-md shadow-blue-600/20 disabled:opacity-50"
-              >
-                {isSending ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                انتشار فوری در تلگرام
+                <Send className="w-3.5 h-3.5" />
+                <span>ضمیمه به پست تلگرام و ارسال به پیش‌نویس</span>
               </button>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
