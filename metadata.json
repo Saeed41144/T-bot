@@ -1,0 +1,7 @@
+{
+  "name": "TeleMasters - پلتفرم هوشمند مدیریت کانال تلگرام",
+  "description": "داشبورد جامع مدیریت هوشمند کانال‌های تلگرام، پردازش و بازنویسی محتوا با مدل‌های زبانی، شورای چند-ایجنتی هوش مصنوعی و زمان‌بندی انتشار",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
